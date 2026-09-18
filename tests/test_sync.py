@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.sync import Whop, fetch_fathom, sync_one
+from scripts.sync import Whop, acquire, fetch_fathom, fetch_mux, sync_one
 
 
 class SyncTests(unittest.TestCase):
@@ -20,6 +20,42 @@ class SyncTests(unittest.TestCase):
             cues, meta = fetch_fathom('https://fathom.video/share/abc')
             self.assertEqual(len(cues), 2)
             self.assertEqual(meta['source'], 'Fathom')
+
+    def test_new_fathom_link_replaces_cached_whop_captions(self):
+        lesson = {'id': 'lesson', 'content': None, 'video_asset': {'id': 'video', 'duration_seconds': 60}}
+        whop = ([{'start': 0, 'end': 60, 'text': 'Sous-titres'}], {'source': 'Whop', 'duration_seconds': 60})
+        fathom = ([{'start': 0, 'end': 60, 'text': 'Original Fathom', 'speaker': 'Alice'}], {'source': 'Fathom', 'duration_seconds': 60})
+        with tempfile.TemporaryDirectory() as tmp, patch('scripts.sync.fetch_mux', return_value=whop) as mux, patch('scripts.sync.fetch_fathom', return_value=fathom) as ft:
+            self.assertEqual(acquire(lesson, Path(tmp)), whop)
+            self.assertEqual(acquire(lesson, Path(tmp)), whop)
+            mux.assert_called_once()
+            lesson['content'] = 'https://fathom.video/share/verified'
+            self.assertEqual(acquire(lesson, Path(tmp)), fathom)
+            self.assertEqual(acquire(lesson, Path(tmp)), fathom)
+            ft.assert_called_once_with('https://fathom.video/share/verified')
+
+    def test_mux_fetches_every_segment_and_preserves_final_words(self):
+        responses = {
+            'https://stream.mux.com/video.m3u8': '#EXTM3U\n#EXT-X-MEDIA:TYPE=SUBTITLES,LANGUAGE="fr",URI="sub/fr.m3u8"',
+            'https://stream.mux.com/sub/fr.m3u8': '#EXTM3U\none.vtt\ntwo.vtt\n#EXT-X-ENDLIST',
+            'https://stream.mux.com/sub/one.vtt': 'WEBVTT\n\n00:00.000 --> 00:30.000\nDébut\n',
+            'https://stream.mux.com/sub/two.vtt': 'WEBVTT\n\n00:30.000 --> 01:00.000\nDerniers mots\n',
+        }
+        lesson = {'video_asset': {'status': 'ready', 'playback_id': 'video', 'duration_seconds': 60}}
+        with patch('scripts.sync.http_text', side_effect=lambda url: responses[url]):
+            cues, meta = fetch_mux(lesson, None)
+        self.assertEqual([x['text'] for x in cues], ['Début', 'Derniers mots'])
+        self.assertEqual(cues[-1]['end'], 60)
+        self.assertEqual(meta['duration_seconds'], 60)
+
+    def test_concurrent_video_change_refuses_description_write(self):
+        api = Whop('test')
+        original = {'id': 'lesson', 'video_asset': {'id': 'original'}}
+        changed = {'id': 'lesson', 'video_asset': {'id': 'replacement'}}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(api, 'request', return_value=changed) as request:
+            with self.assertRaisesRegex(ValueError, 'source a changé'):
+                sync_one(api, original, [{'start': 0, 'end': 60, 'text': 'Ancien'}], 'Whop', Path(tmp), True)
+            self.assertEqual(request.call_count, 1)
 
     def test_sync_readback_and_backup_and_dry_run(self):
         class API:

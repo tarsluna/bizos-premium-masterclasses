@@ -6,6 +6,8 @@ La synchronisation lit uniquement l’expérience **Redif Call** du compte BizOS
 
 La source privilégiée est le lien Fathom déjà présent dans la description. À défaut, le script récupère tous les segments des sous-titres français de la vidéo Whop/Mux. Les réponses brutes et les URL de lecture signées sont conservées exclusivement dans le dossier d’état local, hors du dépôt.
 
+Pour privilégier Fathom sur une leçon existante, ajouter son lien de partage Fathom dans la description Whop, en dehors de la section générée. La synchronisation suivante détecte ce nouveau lien, remplace les sous-titres par la transcription Fathom et met à jour le fichier joint ainsi que GitHub. Plusieurs liens Fathom dans une même leçon provoquent une erreur explicite pour éviter de rattacher le mauvais appel. Le script n’invente aucune correspondance entre les appels privés du compte et les vidéos publiques.
+
 Les transcriptions restent automatiques : des erreurs de reconnaissance et des répétitions peuvent exister dans la source, particulièrement dans les sous-titres Whop. Le texte n’est pas résumé ni réécrit. Les sous-titres identiques qui chevauchent deux segments réseau sont dédupliqués ; les autres paroles sont conservées. Des paragraphes de trente secondes améliorent la lecture sans retirer de texte.
 
 ## Description et fichiers Whop
@@ -56,7 +58,7 @@ Le cache est lié à la vidéo et au lien Fathom. Supprimer seulement le fichier
 
 ## Tâche hebdomadaire sur macOS
 
-L’installation locale utilise **launchd**, le planificateur macOS, chaque lundi à 09:00 dans le fuseau horaire du Mac. Il rattrape une échéance pendant la veille au réveil. Une extinction complète du Mac ne garantit pas un rattrapage : lancer alors la commande manuelle ci-dessus.
+L’installation locale utilise **launchd**, le planificateur macOS, chaque lundi à 09:00 dans le fuseau horaire du Mac. Il rattrape une échéance pendant la veille au réveil, selon la [documentation Apple](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/ScheduledJobs.html). Une extinction complète du Mac ne garantit pas un rattrapage : lancer alors la commande manuelle ci-dessus. Le compte utilisateur doit être connecté et le Mac doit avoir accès au réseau.
 
 L’étiquette du service est `com.tarsluna.bizos-masterclasses`. Son fichier plist se trouve dans `~/Library/LaunchAgents/`. Les chemins propres à la machine et les secrets ne sont pas publiés dans ce dépôt.
 
