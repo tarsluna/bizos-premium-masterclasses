@@ -30,11 +30,11 @@ Les transcriptions sont automatiques et peuvent contenir des erreurs, notamment 
 
 ## Accès aux transcriptions
 
-Ce dépôt est une archive privée. Le lecteur avec contrôle d’abonnement et bouton « Tout copier » est préparé ; son installation dans Whop reste nécessaire avant de remplacer les anciens fichiers joints. Voir [le lecteur réservé aux membres](docs/lecteur-membres.md) pour son état et son activation.
+Ce dépôt est une archive privée. Le lecteur avec contrôle d’abonnement et bouton « Tout copier » est préparé ; son installation dans Whop reste nécessaire avant de remplacer les anciens fichiers joints. Voir [le lecteur réservé aux membres](docs/lecteur-membres.md) pour les détails.
 
 ## Synchronisation
 
-Le script local vérifie les rediffusions chaque semaine et met à jour cette archive privée. En attente de l’installation du lecteur, il ne crée plus de nouveaux fichiers téléchargeables dans Whop.
+Le script local vérifie les rediffusions chaque semaine et met à jour cette archive privée et le lecteur protégé. En attente de l’installation du lecteur, il ne crée plus de nouveaux fichiers téléchargeables dans Whop.
 
 Voir [le guide de maintenance](docs/maintenance.md) pour lancer une synchronisation, consulter les erreurs ou restaurer une description.
 
