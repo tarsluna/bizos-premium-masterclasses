@@ -1,0 +1,5 @@
+.env*
+.vercel/
+node_modules/
+test/
+public/

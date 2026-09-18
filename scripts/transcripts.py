@@ -121,9 +121,11 @@ def text_node(text, kind='paragraph'):
     return node
 
 
-def merge_description(original, cues, source, transcript_url=None):
+def merge_description(original, cues, source, transcript_url=None, members_only=False):
     """Replace only our delimited section; retain every other node verbatim."""
     note = f'Transcription automatique complète · Source : {source}. Des erreurs de reconnaissance peuvent subsister.'
+    label = 'Lire et copier la transcription' if members_only else 'Lire la transcription complète'
+    delivery = 'Lecture réservée aux abonnés BizOS Premium actifs. Le bouton « Tout copier » est disponible dans le lecteur.' if members_only else 'Le fichier Markdown intégral est également joint sous cette vidéo.'
     if not original:
         doc = {'type': 'doc', 'content': []}
     else:
@@ -133,7 +135,7 @@ def merge_description(original, cues, source, transcript_url=None):
             doc = None
     if not isinstance(doc, dict) or doc.get('type') != 'doc':
         start, end = '\n\n## ' + HEADING + '\n', '\n\n' + END
-        link = f'\n\n[Lire la transcription complète]({transcript_url})\n\nLe fichier Markdown intégral est également joint sous cette vidéo.' if transcript_url else ''
+        link = f'\n\n[{label}]({transcript_url})\n\n{delivery}' if transcript_url else ''
         block = start + '\n' + note + link + '\n\n' + '\n\n'.join(cue_line(c, True) for c in group_cues(cues)) + end
         value = original or ''
         if start in value:
@@ -148,7 +150,7 @@ def merge_description(original, cues, source, transcript_url=None):
     starts = [i for i, n in enumerate(nodes) if n.get('type') == 'heading' and node_text(n) == HEADING]
     new = [text_node(HEADING, 'heading'), text_node(note)]
     if transcript_url:
-        new += [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Lire la transcription complète', 'marks': [{'type': 'link', 'attrs': {'href': transcript_url, 'target': '_blank', 'rel': 'noopener noreferrer'}}]}]}, text_node('Le fichier Markdown intégral est également joint sous cette vidéo.')]
+        new += [{'type': 'paragraph', 'content': [{'type': 'text', 'text': label, 'marks': [{'type': 'link', 'attrs': {'href': transcript_url, 'target': '_blank', 'rel': 'noopener noreferrer'}}]}]}, text_node(delivery)]
     new += [text_node(cue_line(c)) for c in group_cues(cues)] + [text_node(END)]
     if starts:
         if len(starts) != 1:

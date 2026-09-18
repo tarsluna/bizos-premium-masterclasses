@@ -1,5 +1,7 @@
 # Maintenance des transcriptions
 
+**Mise à jour :** le dépôt GitHub est privé. Un lecteur contrôlant l’abonnement a été déployé ; il attend son installation dans Whop. Le mode `reader_pending` maintient l’archive et le lecteur sans ajouter de nouveaux téléchargements Whop. Le fonctionnement historique décrit ci-dessous sera remplacé à l’activation de `member_reader` : voir [le guide du lecteur](lecteur-membres.md).
+
 ## Fonctionnement
 
 La synchronisation lit uniquement l’expérience **Redif Call** du compte BizOS. Elle parcourt tous ses cours et leurs leçons visibles. Chaque leçon est identifiée par son identifiant Whop permanent.

@@ -9,3 +9,7 @@ state/
 cache/
 logs/
 *.token
+node_modules/
+.vercel/
+reader/public/
+reader/data/

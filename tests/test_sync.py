@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.sync import Whop, acquire, fetch_fathom, fetch_mux, sync_one
+from scripts.sync import Whop, acquire, ensure_upload, fetch_fathom, fetch_mux, sync_one
 
 
 class SyncTests(unittest.TestCase):
@@ -88,6 +88,44 @@ class SyncTests(unittest.TestCase):
             self.assertLess(len(api.value['content']), 65000)
             self.assertEqual(api.value['attachments'], [{'id': 'file_video'}, {'id': 'file_transcript'}])
             self.assertEqual(upload.call_args.args[2], b'complete markdown')
+
+    def test_members_reader_removes_only_managed_downloads_and_never_uploads(self):
+        class API:
+            def __init__(self): self.value={'id':'lesn_a','content':None,'attachments':[{'id':'file_video'},{'id':'file_old_transcript'}]}
+            def request(self,path,method='GET',body=None):
+                if method=='PATCH': self.value.update(body)
+                return dict(self.value)
+        with tempfile.TemporaryDirectory() as tmp, patch('scripts.sync.ensure_upload') as upload:
+            state=Path(tmp);(state/'uploads').mkdir();(state/'uploads'/'lesn_a-old.json').write_text(json.dumps({'id':'file_old_transcript'}))
+            api=API()
+            result=sync_one(api,api.value,[{'start':0,'end':60,'text':'Private text'}],'Fathom',state,True,
+                markdown='Private text',transcript_url='https://whop.com/bizos/exp_reader/app/lesn_a',members_only=True)
+            self.assertEqual(result,'updated');upload.assert_not_called()
+            self.assertEqual(api.value['attachments'],[{'id':'file_video'}])
+            self.assertIn('Lire et copier',api.value['content'])
+            self.assertNotIn('Private text',api.value['content'])
+            self.assertNotIn('Markdown intégral',api.value['content'])
+            self.assertEqual(sync_one(api,api.value,[],'Fathom',state,True,transcript_url='https://whop.com/bizos/exp_reader/app/lesn_a',members_only=True),'unchanged')
+
+    def test_upload_is_verified_byte_for_byte_and_reused_without_duplicate(self):
+        class API:
+            def __init__(self):self.posts=0
+            def request(self,path,method='GET',body=None):
+                if method=='POST':
+                    self.posts+=1
+                    return {'id':'file_demo','upload_url':'https://upload.example/test','upload_headers':{}}
+                return {'id':'file_demo','upload_status':'ready','url':'https://download.example/test'}
+        class Response:
+            status=200
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+        with tempfile.TemporaryDirectory() as tmp,patch('scripts.sync.urllib.request.urlopen',return_value=Response()),patch('scripts.sync.http_text',return_value='Tout le texte'):
+            api=API();state=Path(tmp)
+            self.assertEqual(ensure_upload(api,'lesn_a',b'Tout le texte',state),'file_demo')
+            self.assertEqual(ensure_upload(api,'lesn_a',b'Tout le texte',state),'file_demo')
+            self.assertEqual(api.posts,1)
+            with self.assertRaisesRegex(ValueError,'diffère'):
+                ensure_upload(api,'lesn_b',b'Texte tronque',state)
 
 
 if __name__ == '__main__': unittest.main()

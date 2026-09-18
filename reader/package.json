@@ -1,0 +1,8 @@
+{
+  "name": "bizos-premium-transcriptions",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test --experimental-test-coverage test/*.test.js", "build": "node build.js"},
+  "engines": {"node": "24.x"},
+  "dependencies": {"jose": "6.2.12"}
+}

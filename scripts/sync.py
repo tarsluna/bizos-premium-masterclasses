@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Weekly Whop → complete transcripts → Whop descriptions and public Markdown.
+"""Weekly Whop → complete transcripts → Whop descriptions and private Markdown archive.
 
 All credentials, signed URLs, snapshots and logs remain outside the Git repository.
 Run with --apply to write Whop, and --publish to commit/push generated files.
@@ -197,13 +197,15 @@ def ensure_upload(api, lesson_id, data, state):
     raise ValueError('Le fichier Whop n’est pas prêt')
 
 
-def sync_one(api, lesson, cues, source, state, apply, markdown=None, transcript_url=None):
+def sync_one(api, lesson, cues, source, state, apply, markdown=None, transcript_url=None, members_only=False):
     # Re-read immediately before writing so a previous inventory cannot clobber user edits.
     live = api.request('course_lessons/' + lesson['id'])
     if source_signature(live) != source_signature(lesson):
         raise ValueError('La vidéo source a changé depuis la collecte')
     def description(value):
-        desired = merge_description(value, cues, source, transcript_url)
+        if members_only and (not transcript_url or urllib.parse.urlsplit(transcript_url).hostname != 'whop.com'):
+            raise ValueError('Le lecteur réservé aux membres doit ouvrir Whop')
+        desired = merge_description(value, [] if members_only else cues, source, transcript_url, members_only=members_only)
         if len(desired) > 64000:
             if not transcript_url or markdown is None:
                 raise ValueError('Description trop longue : fichier complet requis')
@@ -215,7 +217,10 @@ def sync_one(api, lesson, cues, source, state, apply, markdown=None, transcript_
     if not apply:
         return 'unchanged' if desired == live.get('content') else 'planned'
     payload = {'content': desired}
-    if markdown is not None:
+    if members_only:
+        managed = {json.loads(p.read_text())['id'] for p in (state / 'uploads').glob(lesson['id'] + '-*.json')}
+        payload['attachments'] = [{'id': a['id']} for a in live.get('attachments', []) if a['id'] not in managed]
+    elif markdown is not None:
         fid = ensure_upload(api, lesson['id'], markdown.encode(), state)
         live = api.request('course_lessons/' + lesson['id'])
         if source_signature(live) != source_signature(lesson):
@@ -267,7 +272,7 @@ def publish(config):
         raise ValueError('Vérification GitHub échouée')
 
 
-def write_index(entries):
+def write_index(entries, reader=None, pending_reader=None):
     # A failed fetch does not delete a previously published transcript.
     atomic_json(ROOT / 'catalogue.json', entries)
     completed = [e for e in entries if e.get('file')]
@@ -279,7 +284,12 @@ def write_index(entries):
         title = e['title'].replace('|', '\\|')
         link = f'[{title}]({e["file"]})' if e.get('file') else title + ' — transcription en attente'
         lines.append(f'| {e["course"]} | {link} | {e.get("source", "À récupérer")} |')
-    lines += ['', '## Synchronisation', '', 'Le script local vérifie les rediffusions chaque semaine, ajoute les transcriptions disponibles dans les descriptions Whop et met à jour ce dépôt.', '',
+    access = 'Ce dépôt est une archive privée. Les membres lisent et copient les transcriptions dans Whop, après contrôle de leur abonnement.' if reader else 'Ce dépôt est une archive privée. Le lecteur avec contrôle d’abonnement et bouton « Tout copier » est préparé ; son installation dans Whop reste nécessaire avant de remplacer les anciens fichiers joints.'
+    sync_note = 'Le script local vérifie les rediffusions chaque semaine et met à jour cette archive privée et le lecteur protégé.'
+    if pending_reader:
+        sync_note += ' En attente de l’installation du lecteur, il ne crée plus de nouveaux fichiers téléchargeables dans Whop.'
+    lines += ['', '## Accès aux transcriptions', '', access + ' Voir [le lecteur réservé aux membres](docs/lecteur-membres.md) pour les détails.', '',
+              '## Synchronisation', '', sync_note, '',
               'Voir [le guide de maintenance](docs/maintenance.md) pour lancer une synchronisation, consulter les erreurs ou restaurer une description.', '',
               '## Sources techniques', '',
               '- [API Whop : descriptions des leçons](https://docs.whop.com/api-reference/course-lessons/update-course-lesson)',
@@ -296,7 +306,13 @@ def run(config, apply=False, do_publish=False):
     company = api.request('experiences/' + config['experience_id'])
     if company.get('company', {}).get('id') != config['company_id']:
         raise ValueError('Expérience Whop hors du compte autorisé')
-    entries, errors = [], []
+    entries, errors, reader_jobs = [], [], []
+    reader = config.get('member_reader')
+    pending_reader = config.get('reader_pending')
+    if reader:
+        experience = api.request('experiences/' + reader['experience_id'])
+        if experience.get('company', {}).get('id') != config['company_id'] or experience.get('app', {}).get('id') != reader['app_id'] or experience.get('is_public') is not False:
+            raise ValueError('Le lecteur doit être une expérience privée du compte BizOS')
     old = {e['id']: e for e in json.loads((ROOT / 'catalogue.json').read_text())} if (ROOT / 'catalogue.json').exists() else {}
     for course in api.list('courses', experience_id=config['experience_id']):
         if course.get('visibility') != 'visible':
@@ -318,8 +334,15 @@ def run(config, apply=False, do_publish=False):
                     entry['last_timestamp_seconds'] = cues[-1]['end']
                     markdown = render_markdown(entry, cues)
                     check_public_text(markdown, [api.key, Path(config['github_token_file']).read_text().strip()])
-                    result = sync_one(api, lesson, cues, meta['source'], state, apply, markdown=markdown,
-                                      transcript_url='https://github.com/' + config['github_repo'] + '/blob/main/' + entry['file'])
+                    if reader:
+                        reader_jobs.append((lesson, cues, meta, markdown))
+                        result = 'reader_prepared'
+                    elif pending_reader:
+                        # Installation in Whop is still pending: archive privately without creating new downloadable attachments.
+                        result = 'archive_only_pending_reader'
+                    else:
+                        result = sync_one(api, lesson, cues, meta['source'], state, apply, markdown=markdown,
+                                          transcript_url='https://github.com/' + config['github_repo'] + '/blob/main/' + entry['file'])
                     path = ROOT / entry['file']
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(markdown)
@@ -333,10 +356,22 @@ def run(config, apply=False, do_publish=False):
                 entries.append(entry)
     if not entries:
         raise ValueError('Inventaire vide : arrêt sans publication')
-    write_index(entries)
+    if reader or pending_reader:
+        from .member_reader import export_reader, deploy_reader
+        digest = export_reader(entries, cache, ROOT)
+        if apply:
+            deploy_reader(dict(config, member_reader=reader or pending_reader), digest, ROOT)
+        for lesson, cues, meta, markdown in reader_jobs:
+            try:
+                result = sync_one(api, lesson, cues, meta['source'], state, apply, markdown=markdown,
+                    transcript_url='https://whop.com/bizos/' + reader['experience_id'] + '/app/' + lesson['id'], members_only=True)
+                print(json.dumps({'id': lesson['id'], 'status': result, 'delivery': 'members_only'}), flush=True)
+            except (RuntimeError, ValueError, KeyError) as exc:
+                errors.append({'id': lesson['id'], 'reason': str(exc) if not isinstance(exc, KeyError) else 'Format inattendu'})
+    write_index(entries, reader, pending_reader)
     if do_publish:
         publish(config)
-    report = {'finished_at': datetime.now(timezone.utc).isoformat(), 'lessons': len(entries), 'available': sum(bool(e.get('file')) for e in entries), 'apply': apply, 'published': do_publish, 'errors': errors}
+    report = {'finished_at': datetime.now(timezone.utc).isoformat(), 'lessons': len(entries), 'available': sum(bool(e.get('file')) for e in entries), 'apply': apply, 'published': do_publish, 'delivery': 'members_reader' if reader else ('reader_installation_pending' if pending_reader else 'legacy_attachments'), 'errors': errors}
     atomic_json(state / 'last-run.json', report)
     print(json.dumps(report, ensure_ascii=False), flush=True)
     return 1 if errors else 0
